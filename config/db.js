@@ -12,7 +12,7 @@ async function connectDB() {
   mongoose.set('strictQuery', true);
 
   const conn = await mongoose.connect(uri, {
-    serverSelectionTimeoutMS: 8000,   // fail fast if Atlas isn’t reachable
+    serverSelectionTimeoutMS: 2500,   // <= keep small
     socketTimeoutMS: 45000,
     maxPoolSize: 5,
   });
