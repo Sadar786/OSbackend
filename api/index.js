@@ -1,6 +1,13 @@
-// oceanStella/api/index.js
-const serverless = require('serverless-http');
-const app = require('../server'); // exports Express app when VERCEL is set
+// api/index.js  (TEMP TEST)
+module.exports = (req, res) => {
+  res.status(200).json({ ok: true, url: req.url, note: "bare handler works" });
+};
 
-const handler = serverless(app);
-module.exports = async (req, res) => handler(req, res);
+
+
+// // oceanStella/api/index.js
+// const serverless = require('serverless-http');
+// const app = require('../server'); // exports Express app when VERCEL is set
+
+// const handler = serverless(app);
+// module.exports = async (req, res) => handler(req, res);
