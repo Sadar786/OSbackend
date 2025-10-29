@@ -74,17 +74,25 @@ app.get(["/api/ping", "/ping"], (_req, res) => {
 });
 
 /* ---------- Health (touches DB lazily) ---------- */
+// Replace your /health route with this:
 app.get(["/api/v1/health", "/health"], async (_req, res) => {
-  let db = "disconnected";
-  try {
-    await connectDB();
-    db = mongoose.connection.readyState === 1 ? "connected" : String(mongoose.connection.readyState);
-  } catch (e) {
-    db = "error: " + (e && e.message ? e.message : String(e));
-  }
+  let db = "unknown";
+  const tryConnect = (async () => {
+    try {
+      await connectDB();
+      return (mongoose.connection.readyState === 1) ? "connected" : String(mongoose.connection.readyState);
+    } catch (e) {
+      return "error: " + (e?.message || String(e));
+    }
+  })();
+
+  const timeout = new Promise((resolve) => setTimeout(() => resolve("timeout"), 2500));
+  db = await Promise.race([tryConnect, timeout]);
+
   res.set("Cache-Control", "no-store");
   res.json({ ok: true, service: "ocean-stella-api", db });
 });
+
 
 /* ---------- Attach user from access-token cookie (optional) ---------- */
 app.use((req, _res, next) => {
