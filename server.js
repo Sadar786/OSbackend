@@ -121,14 +121,12 @@ app.use("/api/users", require("./routes/user")); // PATCH /me/avatar, etc.
 /* ---------- Start / Export ---------- */
 const PORT = process.env.PORT || 8080;
 
-// ⚠️ Do NOT auto-connect on cold start in serverless.
-// Connect lazily inside routes. For local dev only, you can pre-connect:
-if (!process.env.VERCEL) {
-  connectDB().catch((e) => console.error("❌ Mongo connect error:", e.message));
-}
+// Always connect to MongoDB (Render is NOT serverless)
+connectDB()
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch((e) => console.error("❌ Mongo connect error:", e.message));
 
-if (process.env.VERCEL) {
-  module.exports = app; // used by api/index.js (serverless)
-} else {
-  app.listen(PORT, () => console.log(`🚀 API running on http://localhost:${PORT}`));
-}
+// Start normal Node server on Render
+app.listen(PORT, () => {
+  console.log(`🚀 API running on http://localhost:${PORT}`);
+});
