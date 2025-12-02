@@ -30,15 +30,15 @@ function signAccessToken(user) {
 function setAuthCookies(res, { accessToken, refreshToken }) {
   res.cookie("os_at", accessToken, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
+    secure: true,
+    sameSite: "none",
     path: "/",
     maxAge: 15 * 60 * 1000,
   });
   res.cookie("os_rt", refreshToken, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
+    secure: true,
+    sameSite: "none",
     path: "/",
     maxAge: REFRESH_TTL_MS,
   });
@@ -191,8 +191,8 @@ router.post("/refresh", async (req, res) => {
     const accessToken = signAccessToken(user);
     res.cookie("os_at", accessToken, {
       httpOnly: true,
-      secure: isProd,
-      sameSite: "lax",
+      secure: true,
+      sameSite: "none",
       path: "/",
       maxAge: 15 * 60 * 1000,
     });
