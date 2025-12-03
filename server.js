@@ -10,49 +10,51 @@ const path = require("path");
 const jwt = require("jsonwebtoken");
 const connectDB = require("./config/db");
 
-// Load .env
 dotenv.config();
-
 const app = express();
 
 /* -------------------------------------------------- */
-/* 1. Essential Middlewares (ORDER IS IMPORTANT)      */
+/* 1. PARSE COOKIES + JSON (Must come FIRST)          */
 /* -------------------------------------------------- */
 app.use(cookieParser());
-
-// Must be BEFORE routes
 app.use(express.json({ limit: "2mb" }));
-
-// Static uploads
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* -------------------------------------------------- */
-/* 2. Helmet (SAFE MODE — allows cross-origin cookies)*/
+/* 2. HELMET FIX (MUST disable COOP + CORP)           */
 /* -------------------------------------------------- */
 app.use(
   helmet({
-    crossOriginResourcePolicy: false, // MUST be false for cookies
+    crossOriginOpenerPolicy: false,     // 🔥 REQUIRED for Firebase popup
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: false,   // 🔥 REQUIRED for cookies
   })
 );
 
+// Double-ensure COOP is removed
+app.use((req, res, next) => {
+  res.removeHeader("Cross-Origin-Opener-Policy");
+  next();
+});
+
 /* -------------------------------------------------- */
-/* 3. CORS — allow Vercel frontends + previews        */
+/* 3. CORS CONFIG (MOST IMPORTANT PART)                */
 /* -------------------------------------------------- */
-const FRONTENDS = [
-  "https://oceanstella.vercel.app", // Production frontend
+const ALLOWED_ORIGINS = [
+  "https://oceanstella.vercel.app",  // Production frontend
+  "http://localhost:5173",           // Local dev
 ];
 
-// Use regex to allow preview deployments (*.vercel.app)
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // Allow same-origin requests (mobile apps, curl, etc.)
+    origin(origin, callback) {
+      // Allow requests without origin (curl, mobile apps)
       if (!origin) return callback(null, true);
 
-      // Exact production domain
-      if (FRONTENDS.includes(origin)) return callback(null, true);
+      // Directly allowed
+      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
 
-      // Preview URLs
+      // Allow Vercel preview URLs (*.vercel.app)
       try {
         const { hostname } = new URL(origin);
         if (hostname.endsWith(".vercel.app")) return callback(null, true);
@@ -60,9 +62,9 @@ app.use(
 
       return callback(new Error("CORS blocked: " + origin));
     },
-    credentials: true, // 🔥 REQUIRED for cookies
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    credentials: true,  // 🔥 REQUIRED for cookies to work
     allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   })
 );
 
@@ -70,19 +72,19 @@ app.use(
 app.options("*", cors());
 
 /* -------------------------------------------------- */
-/* 4. Logger                                          */
+/* 4. LOGGER                                          */
 /* -------------------------------------------------- */
 app.use(morgan("dev"));
 
 /* -------------------------------------------------- */
-/* 5. Quick Health Check                              */
+/* 5. HEALTH CHECK                                     */
 /* -------------------------------------------------- */
-app.get("/health", async (req, res) => {
+app.get("/health", (req, res) => {
   res.json({ ok: true, time: Date.now() });
 });
 
 /* -------------------------------------------------- */
-/* 6. Auto attach user from access token cookie       */
+/* 6. AUTO ATTACH USER IF ACCESS TOKEN COOKIE EXISTS   */
 /* -------------------------------------------------- */
 app.use((req, _res, next) => {
   const at = req.cookies?.os_at;
@@ -95,12 +97,15 @@ app.use((req, _res, next) => {
       role: payload.role,
       email: payload.email,
     };
-  } catch {}
+  } catch {
+    // ignore invalid token
+  }
+
   next();
 });
 
 /* -------------------------------------------------- */
-/* 7. API Routes                                      */
+/* 7. ROUTES                                           */
 /* -------------------------------------------------- */
 app.use("/api/v1/auth", require("./routes/auth"));
 app.use("/api/v1/categories", require("./routes/categories"));
@@ -113,7 +118,7 @@ app.use("/api/users", require("./routes/user"));
 app.use("/api/upload", require("./routes/upload.routes"));
 
 /* -------------------------------------------------- */
-/* 8. Start Server (Render keeps dyno alive)           */
+/* 8. START SERVER                                     */
 /* -------------------------------------------------- */
 const PORT = process.env.PORT || 8080;
 
