@@ -1,133 +1,126 @@
 // server/server.js
-const mongoose = require("mongoose");
 const express = require("express");
+const mongoose = require("mongoose");
+const dotenv = require("dotenv");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
-const dotenv = require("dotenv");
 const cookieParser = require("cookie-parser");
-const jwt = require("jsonwebtoken");
 const path = require("path");
+const jwt = require("jsonwebtoken");
 const connectDB = require("./config/db");
 
-// load env
+// Load .env
 dotenv.config();
 
 const app = express();
 
-/* ---------- Minimal boot logging (safe) ---------- */
-try {
-  const cloudinary = require("./config/cloudinary");
-  console.log("Cloudinary:", cloudinary.config().cloud_name || "(no cloud name)");
-} catch {
-  console.log("Cloudinary: not configured");
-}
-
-/* ---------- Core middleware (order matters) ---------- */
+/* -------------------------------------------------- */
+/* 1. Essential Middlewares (ORDER IS IMPORTANT)      */
+/* -------------------------------------------------- */
 app.use(cookieParser());
-app.use(express.json({ limit: "1mb" }));
+
+// Must be BEFORE routes
+app.use(express.json({ limit: "2mb" }));
+
+// Static uploads
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+/* -------------------------------------------------- */
+/* 2. Helmet (SAFE MODE — allows cross-origin cookies)*/
+/* -------------------------------------------------- */
 app.use(
   helmet({
-    crossOriginResourcePolicy: false,
+    crossOriginResourcePolicy: false, // MUST be false for cookies
   })
 );
 
+/* -------------------------------------------------- */
+/* 3. CORS — allow Vercel frontends + previews        */
+/* -------------------------------------------------- */
+const FRONTENDS = [
+  "https://oceanstella.vercel.app", // Production frontend
+];
 
-/* ---------- CORS (allow exact domains + *.vercel.app previews) ---------- */
-const allowed = (process.env.CORS_ORIGIN || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-function isAllowedOrigin(origin) {
-  if (!origin) return true; // same-origin / curl
-  if (allowed.includes(origin)) return true;
-  try {
-    const { hostname } = new URL(origin);
-    if (hostname.endsWith(".vercel.app")) return true; // previews
-  } catch {}
-  return false;
-}
-
+// Use regex to allow preview deployments (*.vercel.app)
 app.use(
   cors({
-    origin: [
-      "https://oceanstella.vercel.app",
-      /\.vercel\.app$/
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    origin: function (origin, callback) {
+      // Allow same-origin requests (mobile apps, curl, etc.)
+      if (!origin) return callback(null, true);
+
+      // Exact production domain
+      if (FRONTENDS.includes(origin)) return callback(null, true);
+
+      // Preview URLs
+      try {
+        const { hostname } = new URL(origin);
+        if (hostname.endsWith(".vercel.app")) return callback(null, true);
+      } catch {}
+
+      return callback(new Error("CORS blocked: " + origin));
+    },
+    credentials: true, // 🔥 REQUIRED for cookies
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
+// Preflight
 app.options("*", cors());
 
-
+/* -------------------------------------------------- */
+/* 4. Logger                                          */
+/* -------------------------------------------------- */
 app.use(morgan("dev"));
 
-/* ---------- Fast ping (no DB) ---------- */
-app.get(["/api/ping", "/ping"], (_req, res) => {
-  res.set("Cache-Control", "no-store");
-  res.json({ ok: true, pong: true, time: Date.now() });
+/* -------------------------------------------------- */
+/* 5. Quick Health Check                              */
+/* -------------------------------------------------- */
+app.get("/health", async (req, res) => {
+  res.json({ ok: true, time: Date.now() });
 });
 
-/* ---------- Health (touches DB lazily) ---------- */
-// Replace your /health route with this:
-app.get(["/api/v1/health", "/health"], async (_req, res) => {
-  let db = "unknown";
-  const tryConnect = (async () => {
-    try {
-      await connectDB();
-      return (mongoose.connection.readyState === 1) ? "connected" : String(mongoose.connection.readyState);
-    } catch (e) {
-      return "error: " + (e?.message || String(e));
-    }
-  })();
-
-  const timeout = new Promise((resolve) => setTimeout(() => resolve("timeout"), 2500));
-  db = await Promise.race([tryConnect, timeout]);
-
-  res.set("Cache-Control", "no-store");
-  res.json({ ok: true, service: "ocean-stella-api", db });
-});
-
-
-/* ---------- Attach user from access-token cookie (optional) ---------- */
+/* -------------------------------------------------- */
+/* 6. Auto attach user from access token cookie       */
+/* -------------------------------------------------- */
 app.use((req, _res, next) => {
   const at = req.cookies?.os_at;
   if (!at) return next();
+
   try {
     const payload = jwt.verify(at, process.env.JWT_ACCESS_SECRET);
-    req.user = { id: payload.sub, role: payload.role, email: payload.email };
-  } catch {
-    // ignore invalid/expired
-  }
+    req.user = {
+      id: payload.sub,
+      role: payload.role,
+      email: payload.email,
+    };
+  } catch {}
   next();
 });
 
-/* ---------- API routes ---------- */
+/* -------------------------------------------------- */
+/* 7. API Routes                                      */
+/* -------------------------------------------------- */
+app.use("/api/v1/auth", require("./routes/auth"));
 app.use("/api/v1/categories", require("./routes/categories"));
 app.use("/api/v1/products", require("./routes/products"));
-app.use("/api/v1/case-studies", require("./routes/caseStudies"));
 app.use("/api/v1/blog", require("./routes/blog"));
-app.use("/api/v1/leads", require("./routes/leads"));
 app.use("/api/v1/inquiries", require("./routes/inquiries"));
-app.use("/api/v1/auth", require("./routes/auth"));
+app.use("/api/v1/leads", require("./routes/leads"));
+app.use("/api/v1/case-studies", require("./routes/caseStudies"));
+app.use("/api/users", require("./routes/user"));
 app.use("/api/upload", require("./routes/upload.routes"));
-app.use("/api/users", require("./routes/user")); // PATCH /me/avatar, etc.
 
-/* ---------- Start / Export ---------- */
+/* -------------------------------------------------- */
+/* 8. Start Server (Render keeps dyno alive)           */
+/* -------------------------------------------------- */
 const PORT = process.env.PORT || 8080;
 
-// Always connect to MongoDB (Render is NOT serverless)
 connectDB()
   .then(() => console.log("✅ MongoDB connected"))
-  .catch((e) => console.error("❌ Mongo connect error:", e.message));
+  .catch((err) => console.error("❌ MongoDB Error:", err));
 
-// Start normal Node server on Render
-app.listen(PORT, () => {
-  console.log(`🚀 API running on http://localhost:${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log(`🚀 Ocean Stella API running on http://localhost:${PORT}`)
+);
