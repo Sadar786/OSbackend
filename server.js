@@ -30,9 +30,10 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.use(
   helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginResourcePolicy: false,
   })
 );
+
 
 /* ---------- CORS (allow exact domains + *.vercel.app previews) ---------- */
 const allowed = (process.env.CORS_ORIGIN || "")
@@ -52,16 +53,16 @@ function isAllowedOrigin(origin) {
 
 app.use(
   cors({
-    origin(origin, cb) {
-      return isAllowedOrigin(origin)
-        ? cb(null, true)
-        : cb(new Error("Not allowed by CORS"));
-    },
+    origin: [
+      "https://oceanstella.vercel.app",
+      /\.vercel\.app$/
+    ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
 app.options("*", cors());
 
 
